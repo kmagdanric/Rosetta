@@ -1,0 +1,158 @@
+{
+  "project": "Rosetta",
+  "branchName": "ralph/sprint2-agent-wiring",
+  "description": "Sprint 2-3: Wire up SSOT MCP tools, GWAS Catalog MCP, lead/worker agents, orchestrator, Docker compute, and run a full end-to-end integration test",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Register pytest markers in pyproject.toml",
+      "description": "As a developer, I need pytest markers registered so tests can be selectively skipped by category (network, integration, docker).",
+      "acceptanceCriteria": [
+        "Add [tool.pytest.ini_options] markers list to pyproject.toml: 'network', 'integration', 'docker'",
+        "Each marker has a description string (e.g. 'network: requires internet access')",
+        "uv run pytest tests/ -v passes with 0 failures",
+        "uv run pytest --markers shows the 3 new markers without warnings"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "Create SSOT hypothesis graph MCP tools",
+      "description": "As a developer, I need the SSOT hypothesis graph operations exposed as @tool-decorated functions so agents can query and mutate the hypothesis DAG via MCP.",
+      "acceptanceCriteria": [
+        "rosetta/ssot/tools.py created with 7 @tool functions wrapping hypothesis_graph.py: get_hypothesis_summary, get_frontier, create_hypothesis, update_confidence, kill_hypothesis, propagate_evidence, check_kill_conditions",
+        "Each tool accepts only primitive parameters (str, float, int, bool) and returns a str",
+        "create_hypothesis tool auto-generates hypothesis_id via next_hypothesis_id()",
+        "update_confidence tool creates an Evidence object internally from the primitive params",
+        "propagate_evidence tool creates an Evidence object internally from the primitive params",
+        "Tools use ROSETTA_SSOT_DIR env var for ssot directory (matching existing pattern in hypothesis_graph.py)",
+        "tests/test_tools.py created with at least 7 tests — one per tool function — using tmp_ssot_dir fixture",
+        "uv run pytest tests/ -v passes with 0 failures"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": "The @tool decorator comes from claude_agent_sdk. Import: from claude_agent_sdk import tool. Each tool wraps the corresponding function in rosetta.ssot.hypothesis_graph. Tools should catch ValueError exceptions and return error strings rather than raising."
+    },
+    {
+      "id": "US-003",
+      "title": "Add decision log and queue MCP tools + create_ssot_mcp_server",
+      "description": "As a developer, I need the remaining SSOT operations (decision log, experiment queue) exposed as tools and a factory function that bundles all 11 tools into one MCP server.",
+      "acceptanceCriteria": [
+        "4 additional @tool functions added to rosetta/ssot/tools.py: log_decision, get_decision_diff, get_queue, enqueue_experiment",
+        "Each tool accepts only primitive parameters and returns a str",
+        "create_ssot_mcp_server() function added that calls create_sdk_mcp_server('ssot', tools=[...]) with all 11 tools and returns the result",
+        "Import at top of file: from claude_agent_sdk import tool, create_sdk_mcp_server",
+        "4 additional tests added to tests/test_tools.py — one per new tool function",
+        "Test for create_ssot_mcp_server() verifying it returns a valid config object",
+        "uv run pytest tests/ -v passes with 0 failures"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": "Wraps rosetta.ssot.decision_log (log_decision, read_decisions, get_decision_diff) and rosetta.ssot.queue (enqueue_experiment, get_queue). The complete_experiment and dequeue_experiment functions are internal — not exposed as agent tools."
+    },
+    {
+      "id": "US-004",
+      "title": "Create GWAS Catalog MCP server",
+      "description": "As a GWAS worker agent, I need to query the EBI GWAS Catalog REST API to search for studies, retrieve SNP associations, and get summary statistics URLs.",
+      "acceptanceCriteria": [
+        "rosetta/mcp_servers/gwas_catalog.py created with 3 @tool functions: search_studies(query: str), get_associations(study_accession: str), get_summary_stats_url(study_accession: str)",
+        "search_studies queries https://www.ebi.ac.uk/gwas/rest/api/studies/search/findByDiseaseTrait and returns formatted study list (accession, trait, sample size, publication)",
+        "get_associations queries /studies/{accession}/associations and returns formatted SNP table (rsid, pvalue, mapped genes, risk allele)",
+        "get_summary_stats_url queries /studies/{accession} and extracts the FTP URL for summary statistics",
+        "All tools return human-readable text summaries, not raw JSON",
+        "Tools handle HTTP errors gracefully — return descriptive error strings for 404, timeout, rate limit",
+        "create_gwas_catalog_mcp_server() function returns configured MCP server via create_sdk_mcp_server('gwas_catalog', tools=[...])",
+        "tests/test_gwas_catalog.py created with at least 3 tests marked @pytest.mark.network",
+        "uv run pytest tests/ -v -m 'not network' passes with 0 failures"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": "Use the requests library (already in pyproject.toml dependencies). EBI GWAS Catalog REST API uses HAL+JSON format — responses have _embedded and _links fields. Accept header should be application/json. Truncate large result sets to top 50 entries."
+    },
+    {
+      "id": "US-005",
+      "title": "Create lead researcher system prompt",
+      "description": "As the orchestrator, I need a lead researcher system prompt encoding the 6 validated reasoning strategies and a decision protocol so the lead agent makes scientifically sound decisions.",
+      "acceptanceCriteria": [
+        "rosetta/prompts/lead.py created with LEAD_SYSTEM_PROMPT string constant",
+        "Prompt encodes all 6 reasoning strategies: (1) orthogonal evidence filtration, (2) adaptive fallback on failure, (3) multiplicative convergence scoring, (4) adversarial self-critique, (5) cost-ordered evidence cascades, (6) theory-laden weighted integration",
+        "Prompt includes explicit decision protocol: after each worker result the lead must check kill conditions, update hypothesis graph, log decision with rationale, get frontier, dispatch next worker or conclude",
+        "Prompt instructs lead to use SSOT tools by name (get_hypothesis_summary, get_frontier, create_hypothesis, etc.) — never manipulate YAML files directly",
+        "Prompt lists available worker agents and their capabilities (GWAS triage worker for now)",
+        "Prompt instructs lead to always write structured rationales in the decision log explaining why decisions were made",
+        "uv run pytest tests/ -v passes with 0 failures"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": "This is a pure text file — no logic to test, just the prompt string. The 6 reasoning strategies come from docs/clarify.md section 6. The prompt should be long and detailed — this is the core intelligence of the system."
+    },
+    {
+      "id": "US-006",
+      "title": "Create GWAS worker prompt and agent definitions",
+      "description": "As the orchestrator, I need the GWAS triage worker prompt and a factory function that builds all worker AgentDefinitions so the lead can dispatch them via the Task tool.",
+      "acceptanceCriteria": [
+        "rosetta/prompts/gwas_worker.py created with GWAS_WORKER_PROMPT string constant",
+        "Worker prompt instructs agent to: (1) query GWAS Catalog MCP for study data, (2) extract significant loci, (3) classify genes into pathway modules using rosetta.analysis.gwas functions, (4) create hypotheses in SSOT for top genes, (5) return structured summary to lead",
+        "rosetta/agents.py created with build_worker_agents() returning dict[str, AgentDefinition]",
+        "GWAS worker AgentDefinition has: description, prompt (from gwas_worker.py), model='sonnet', tools list including SSOT MCP + GWAS Catalog MCP server configs",
+        "Workers do NOT have Task tool in their tools list (SDK constraint)",
+        "tests/test_agents.py created with tests verifying: build_worker_agents() returns dict with 'gwas_triage' key, agent has correct model, agent has no Task tool",
+        "uv run pytest tests/ -v passes with 0 failures"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": "Import AgentDefinition from claude_agent_sdk. The worker needs both MCP servers (SSOT for writing results, GWAS Catalog for querying). Pass the MCP server configs from create_ssot_mcp_server() and create_gwas_catalog_mcp_server() into the agent's tools list."
+    },
+    {
+      "id": "US-007",
+      "title": "Build the orchestrator with ClaudeSDKClient",
+      "description": "As a user, I need a run_pipeline() function that creates the lead agent, wires up MCP servers and workers, and runs the multi-turn conversation loop.",
+      "acceptanceCriteria": [
+        "rosetta/orchestrator.py created with run_pipeline(disease: str, study_accession: str | None, ssot_dir: str | None, max_turns: int = 20) -> None",
+        "Creates ClaudeSDKClient with: lead system prompt, SSOT MCP server, GWAS Catalog MCP server, worker agent definitions, model from ROSETTA_LEAD_MODEL env var (default 'opus')",
+        "Bootstraps conversation with initial user message containing disease name and optional study accession",
+        "Implements continuation loop: client.query() -> process response -> client.receive_response() -> repeat until completion or max_turns",
+        "Loads .env file via python-dotenv at startup for ANTHROPIC_API_KEY",
+        "rosetta/__main__.py created so pipeline can be run via: uv run python -m rosetta --disease 'Alzheimer' --study GCST90027158",
+        "uv run pytest tests/ -v passes with 0 failures"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": "Import ClaudeSDKClient, ClaudeAgentOptions from claude_agent_sdk. The continuation loop processes AssistantMessage (may contain tool calls), TextBlock (text output), ResultMessage (completion). Use argparse for CLI. The SSOT dir defaults to ROSETTA_SSOT_DIR env var or ./ssot."
+    },
+    {
+      "id": "US-008",
+      "title": "Set up Docker compute infrastructure",
+      "description": "As a developer, I need a Docker setup with R + Python bioinformatics packages and host-mounted volumes so worker agents can execute heavy compute jobs.",
+      "acceptanceCriteria": [
+        "docker/Dockerfile created with python:3.12-slim base, R installed via apt (r-base), Python packages (pandas, numpy, scipy, statsmodels, matplotlib, seaborn), R packages (BiocManager, DESeq2, TwoSampleMR)",
+        "docker/docker-compose.yml created with service rosetta-compute, build from docker/, volume ../ssot:/data, command tail -f /dev/null to keep alive",
+        "docker/scripts/run_analysis.py created as sample script demonstrating read from /data and write results back",
+        "Dockerfile uses /workspace as WORKDIR and /data as the mount point",
+        "uv run pytest tests/ -v passes with 0 failures"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": "R + Bioconductor install is slow (~15 min build). Use apt-get for r-base. Install BiocManager via Rscript -e. DESeq2 and TwoSampleMR install from Bioconductor. Consider multi-stage build to keep final image smaller. Docker tests are manual — just verify the files are syntactically correct."
+    },
+    {
+      "id": "US-009",
+      "title": "MVP integration test — full lead-worker-SSOT cycle",
+      "description": "As a developer, I need an integration test that verifies the complete cycle: lead bootstraps hypotheses, dispatches GWAS worker, worker writes to SSOT, lead interprets and picks next experiment.",
+      "acceptanceCriteria": [
+        "tests/test_integration.py created with at least one test function marked @pytest.mark.integration",
+        "Test calls run_pipeline() with disease='Alzheimer disease', study_accession='GCST90027158', max_turns=10, and a tmp_ssot_dir",
+        "After run, asserts at least 1 hypothesis YAML file exists in ssot/hypotheses/",
+        "After run, asserts decisions.jsonl has at least 1 entry",
+        "Test skips gracefully if ANTHROPIC_API_KEY env var is not set (pytest.skip)",
+        "uv run pytest tests/ -v -m 'not integration' passes with 0 failures (existing unit tests unaffected)",
+        "uv run pytest tests/test_integration.py -v passes when API key is set"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": "This is a live integration test requiring a real API key and network access. Use a small max_turns (10) to limit cost. The test should use tmp_path for SSOT dir to avoid polluting the repo. Import run_pipeline from rosetta.orchestrator."
+    }
+  ]
+}

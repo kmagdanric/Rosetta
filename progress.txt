@@ -1,0 +1,13 @@
+## Codebase Patterns
+- SSOT directory configurable via `ROSETTA_SSOT_DIR` env var, default `./ssot`
+- Tests use `tmp_ssot_dir` fixture from `tests/conftest.py` (creates temp dir with hypotheses/ and data_registry/ subdirs)
+- Run tests with: `uv run pytest tests/ -v`
+- All SSOT modules (hypothesis_graph, decision_log, queue) accept optional `ssot_dir` parameter
+- Schema models use Pydantic v2 with `model_dump(mode="json")` / `model_validate(data)` for serialization
+- YAML files use `yaml.safe_load` / `yaml.dump` with `default_flow_style=False, sort_keys=False`
+- Agent SDK package: `claude-agent-sdk` — import as `from claude_agent_sdk import ...`
+- Hypothesis IDs follow pattern H001, H002, etc. (via `next_hypothesis_id()`)
+- All functions use type hints and docstrings matching Google/numpy style
+- Code is ruff-formatted with line-length=100, target Python 3.12
+
+---
